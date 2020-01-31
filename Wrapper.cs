@@ -112,7 +112,7 @@ namespace InkbunnyOAuthWrapper {
         </div>
         <div class='form-group'>
             <label for='password'>Password</label>
-            <input type='text' id='password' name='password' class='form-control' />
+            <input type='password' id='password' name='password' class='form-control' />
         </div>
         <input type='submit' value='Submit' class='btn btn-primary' />
     </form>
@@ -193,7 +193,18 @@ namespace InkbunnyOAuthWrapper {
                 return new FileContentResult(Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8");
             }
 
-            query["code"] = Encrypt(client_secret, json);
+            var resp_obj = JsonConvert.DeserializeAnonymousType(json, new {
+                sid = "",
+                user_id = 0L,
+                ratingsmask = ""
+            });
+
+            query["code"] = Encrypt(client_secret, JsonConvert.SerializeObject(new {
+                s = resp_obj.sid,
+                i = resp_obj.user_id,
+                r = resp_obj.ratingsmask,
+                u = username
+            }));
 
             string state = req.Form["state"];
             if (state != null)
@@ -250,17 +261,19 @@ namespace InkbunnyOAuthWrapper {
             try {
                 string sid_json = Decrypt(client_secret, code);
 
-                var sid_obj = JsonConvert.DeserializeAnonymousType(sid_json, new {
-                    sid = "",
-                    user_id = 0L,
-                    ratingsmask = ""
+                var user_obj = JsonConvert.DeserializeAnonymousType(sid_json, new {
+                    s = "",
+                    i = 0L,
+                    r = "",
+                    u = ""
                 });
 
                 return new OkObjectResult(new {
-                    access_token = sid_obj.sid,
+                    access_token = user_obj.s,
                     token_type = "inkbunny",
-                    sid_obj.user_id,
-                    sid_obj.ratingsmask
+                    user_id = user_obj.u,
+                    ratingsmask = user_obj.r,
+                    username = user_obj.u
                 });
             } catch (JsonReaderException) {
                 return new OkObjectResult(new {
