@@ -1,0 +1,6 @@
+bin
+obj
+.vs
+*.pubxml
+*.user
+local.settings.json
