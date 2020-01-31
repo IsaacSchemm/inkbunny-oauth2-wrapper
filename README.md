@@ -1,7 +1,7 @@
-# weasyl-api-key-oauth2-wrapper
+# inkbunny-oauth2-wrapper
 
-This is a (non-standards-compliant) OAuth2 server that prompts a user for a
-Weasyl API key, and returns the API key to the server as an access token. The
+This is a (non-standards-compliant) OAuth2 server that prompts a user for an
+Inkbunny username and password, and returns the Inkbunny SID and user ID. The
 server runs on Azure Functions and is completely stateless.
 
 You can deploy it to your own Azure account if you'd like. Just set a client
