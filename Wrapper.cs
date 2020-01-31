@@ -10,9 +10,9 @@ using System.Net;
 using System.Web;
 using System.Text;
 
-namespace WeasylOAuthWrapper {
+namespace InkbunnyOAuthWrapper {
     /// <summary>
-    /// A set of Azure Functions endpoints that let OAuth2 clients obtain a Weasyl API key from a user.
+    /// A set of Azure Functions endpoints that let OAuth2 clients obtain an Inkbunny username and sid from a user.
     /// </summary>
     public static class Wrapper {
         /// <summary>
@@ -95,44 +95,49 @@ namespace WeasylOAuthWrapper {
             string html = string.Format(@"<!DOCTYPE html>
 <html>
     <head>
-        <title>Weasyl API Key OAuth2 Wrapper</title>
+        <title>Inkbunny OAuth2 Wrapper</title>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css' integrity='sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T' crossorigin='anonymous'>
     </head>
 <body class='m-2'>
     <p>
-        Enter your Weasyl API key below.<br />
-        You can obtain an API key by visiting the <a href='https://www.weasyl.com/control/apikeys' target='_blank'>Manage API Keys</a> page on the Weasyl site.
+        Enter your Inkbunny credentials below.<br />
+        To use the API, ""Enable API Access"" must be turned on in your <a href='https://inkbunny.net/account.php' target='_blank'>Inkbunny account settings.</a>
     </p>
-    <form action='postback' method='post' class='form-inline'>
+    <form action='postback' method='post' class='col-md-6'>
         {0}
-        <div class='form-group mr-2'>
-            <input type='text' name='api_key' class='form-control' />
+        <div class='form-group'>
+            <label for='username'>Username</label>
+            <input type='text' id='username' name='username' class='form-control' />
+        </div>
+        <div class='form-group'>
+            <label for='password'>Password</label>
+            <input type='text' id='password' name='password' class='form-control' />
         </div>
         <input type='submit' value='Submit' class='btn btn-primary' />
     </form>
     <hr />
-    <p class='font-weight-bold'>This page is not part of Weasyl. By entering your API key, you are giving {1} and {2} access to your account.</p>
+    <p class='font-weight-bold'>This page is not part of Inkbunny. By entering your API key, you are giving {1} and {2} access to your account.</p>
     <hr />
     <p class='small'>
-        <a href='https://github.com/IsaacSchemm/weasyl-api-key-oauth2-wrapper' target='_blank'>
+        <a href='https://github.com/IsaacSchemm/inkbunny-oauth2-wrapper' target='_blank'>
             View source on GitHub
         </a>
     </p>
 </body>
 </html>", hidden_inputs.ToString(), WebUtility.HtmlEncode(req.Host.Host), redirect_uri_parsed.Host);
-            return new FileContentResult(Encoding.UTF8.GetBytes(html), "text/html");
+            return new FileContentResult(Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8");
         }
 
         /// <summary>
         /// Process an API key entry by the user and redirect to the redirect_uri.
         /// 
         /// Two URL parameters will be added:
-        /// * code - an encrypted version of the API key (encrypted using the client secret)
+        /// * code - an encrypted object containing the sid and user_id (encrypted using the client secret)
         /// * state - a copy of the state parameter sent with the /auth request, if any
         /// </summary>
         [FunctionName("postback")]
-        public static IActionResult Postback([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = null)] HttpRequest req) {
+        public static async Task<IActionResult> Postback([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = null)] HttpRequest req) {
             string client_id = req.Form["client_id"];
             string client_secret = GetClientSecret(client_id);
             if (client_secret == null)
@@ -145,11 +150,50 @@ namespace WeasylOAuthWrapper {
             var uriBuilder = new UriBuilder(redirect_uri);
             var query = HttpUtility.ParseQueryString(uriBuilder.Query);
 
-            string api_key = req.Form["api_key"];
-            if (api_key == null)
+            string username = req.Form["username"];
+            if (username == null)
                 return new BadRequestResult();
 
-            query["code"] = Encrypt(client_secret, api_key);
+            string password = req.Form["password"];
+            if (password == null)
+                return new BadRequestResult();
+
+            var hreq = WebRequest.CreateHttp("https://inkbunny.net/api_login.php");
+            hreq.Method = "POST";
+            hreq.ContentType = "application/x-www-form-urlencoded";
+            using (var reqStream = await hreq.GetRequestStreamAsync()) {
+                using var sw = new StreamWriter(reqStream);
+                await sw.WriteAsync($"username={Uri.EscapeDataString(username)}&");
+                await sw.WriteAsync($"password={Uri.EscapeDataString(password)}&");
+                await sw.WriteAsync($"output_mode=json");
+            }
+            using var resp = await hreq.GetResponseAsync();
+            using var respStream = resp.GetResponseStream();
+            using var sr = new StreamReader(respStream);
+            string json = await sr.ReadToEndAsync();
+
+            var err = JsonConvert.DeserializeAnonymousType(json, new { error_message = "" });
+            if (err.error_message != null) {
+                string html = string.Format(@"<!DOCTYPE html>
+<html>
+    <head>
+        <title>Inkbunny OAuth2 Wrapper</title>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <link rel='stylesheet' href='https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css' integrity='sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T' crossorigin='anonymous'>
+    </head>
+<body class='m-2'>
+    <p>
+        {0}
+    </p>
+    <p>
+        <a href='#' onclick='history.back();' class='btn btn-primary'>Go back</a>
+    </p>
+</body>
+</html>", WebUtility.HtmlEncode(err.error_message));
+                return new FileContentResult(Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8");
+            }
+
+            query["code"] = Encrypt(client_secret, json);
 
             string state = req.Form["state"];
             if (state != null)
@@ -174,7 +218,7 @@ namespace WeasylOAuthWrapper {
         /// <param name="req"></param>
         /// <returns></returns>
         [FunctionName("token")]
-        public static async Task<IActionResult> Token([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = null)] HttpRequest req) {
+        public static IActionResult Token([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = null)] HttpRequest req) {
             string client_id = req.Form["client_id"];
             if (client_id == null)
                 return new OkObjectResult(new {
@@ -203,31 +247,26 @@ namespace WeasylOAuthWrapper {
                     error_description = "code is missing or invalid"
                 });
 
-            string apiKey = Decrypt(client_secret, code);
-
-            var hreq = WebRequest.CreateHttp("https://www.weasyl.com/api/whoami");
-            hreq.UserAgent = "weasyl-api-key-oauth2-wrapper/0.0";
-            hreq.Headers["X-Weasyl-API-Key"] = apiKey;
             try {
-                using (var resp = await hreq.GetResponseAsync())
-                using (var sr = new StreamReader(resp.GetResponseStream())) {
-                    string json = await sr.ReadToEndAsync();
-                    var user = JsonConvert.DeserializeAnonymousType(json, new { login = "", userid = 0L });
+                string sid_json = Decrypt(client_secret, code);
 
-                    return new OkObjectResult(new {
-                        access_token = apiKey,
-                        token_type = "weasyl",
-                        user.userid,
-                        user.login
-                    });
-                }
-            } catch (WebException ex) when ((ex.Response as HttpWebResponse)?.StatusCode == HttpStatusCode.Unauthorized) {
-                return new OkObjectResult(new {
-                    error = "invalid_grant",
-                    error_description = "API key rejected by Weasyl"
+                var sid_obj = JsonConvert.DeserializeAnonymousType(sid_json, new {
+                    sid = "",
+                    user_id = 0L,
+                    ratingsmask = ""
                 });
-            } catch (WebException) {
-                return new StatusCodeResult((int)HttpStatusCode.BadGateway);
+
+                return new OkObjectResult(new {
+                    access_token = sid_obj.sid,
+                    token_type = "inkbunny",
+                    sid_obj.user_id,
+                    sid_obj.ratingsmask
+                });
+            } catch (JsonReaderException) {
+                return new OkObjectResult(new {
+                    error = "invalid_request",
+                    error_description = "code is missing or invalid"
+                });
             }
         }
     }

@@ -11,7 +11,7 @@ using Org.BouncyCastle.Crypto.Modes;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Security;
 
-namespace WeasylOAuthWrapper {
+namespace InkbunnyOAuthWrapper {
     public static class AESGCM {
         private static readonly SecureRandom Random = new SecureRandom();
 
